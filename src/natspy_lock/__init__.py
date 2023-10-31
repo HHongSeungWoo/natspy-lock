@@ -1,12 +1,13 @@
 import asyncio
 import time
+import warnings
 
 from nats.js import JetStreamContext
 from nats.js.api import KeyValueConfig
 from nats.js.errors import KeyWrongLastSequenceError
 from nats.js.kv import KeyValue
 
-_lock_dict = {}
+_lock_dict: dict[str, asyncio.Future] = {}
 
 
 class NoOpClass:
@@ -24,11 +25,10 @@ async def watch_lock(kv: KeyValue):
             continue
 
         if entry:
-            match entry.operation:
-                case None:
-                    _ = _lock_dict.setdefault(entry.key, asyncio.Future())
-                case "PURGE":
-                    _lock_dict.pop(entry.key, NoOpClass).set_result(True)
+            if entry.operation is None:
+                _ = _lock_dict.setdefault(entry.key, asyncio.Future())
+            elif entry.operation == "PURGE":
+                _lock_dict.pop(entry.key, NoOpClass).set_result(True)
 
 
 # 상태에 맞는 에러를 raise 시키는게 더 나은가??
@@ -46,7 +46,7 @@ async def acquire(kv: KeyValue, key: str, wait: float = 0):
         except KeyWrongLastSequenceError:
             pass
         except Exception as e:
-            print("unknown", e)
+            warnings.warn(f"Unexpected error occurred while acquiring lock: {e}", stacklevel=2)
 
     if wait > 0:
         try:
@@ -54,7 +54,7 @@ async def acquire(kv: KeyValue, key: str, wait: float = 0):
 
             return await acquire(kv, key, wait - (time.time() - start))
         except asyncio.TimeoutError:
-            # TODO 타임아웃된 경우 목록에서 제거했을 때 문제 없는가?
+            # noinspection PyAsyncCall
             _lock_dict.pop(key, None)
             return False
         except Exception:
@@ -91,6 +91,10 @@ class _NatsLock:
         return await self.acquire()
 
 
+InitialError = RuntimeError("kv has not been initialized")
+TtlMismatchError = RuntimeError("ttl not match")
+
+
 class NatsLock:
     _kv: KeyValue | None = None
     _watch_task: asyncio.Task | None = None
@@ -98,17 +102,17 @@ class NatsLock:
     @classmethod
     async def init(cls, js: JetStreamContext, stream_name: str, max_ttl: int):
         if cls._kv:
-            raise RuntimeError("init twice")
+            return
         try:
             cls._kv = await js.key_value(stream_name)
         except Exception:
             cls._kv = await js.create_key_value(KeyValueConfig(stream_name, ttl=max_ttl))
         if (await cls._kv.status()).ttl != max_ttl:
-            raise RuntimeError("ttl not match")
+            raise TtlMismatchError
         cls._watch_task = asyncio.create_task(watch_lock(cls._kv))
 
     @classmethod
-    def Lock(cls, key: str, wait: float = 0):
+    def lock(cls, key: str, wait: float = 0):
         if not cls._kv:
-            raise RuntimeError("kv has not been initialized")
+            raise InitialError
         return _NatsLock(cls._kv, key, wait)
