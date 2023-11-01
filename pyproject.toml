@@ -38,7 +38,7 @@ Issues = "https://github.com/HHongSeungWoo/natspy-lock/issues"
 Source = "https://github.com/HHongSeungWoo/natspy-lock"
 
 [tool.hatch.version]
-path = "src/natspy_lock/__about__.py"
+path = "natspy_lock/__init__.py"
 
 [tool.hatch.envs.default]
 path = "venv"
@@ -71,7 +71,7 @@ dependencies = [
   "ruff>=0.0.243",
 ]
 [tool.hatch.envs.lint.scripts]
-typing = "mypy --install-types --non-interactive {args:src/natspy_lock tests}"
+typing = "mypy --install-types --non-interactive {args:natspy_lock tests}"
 style = [
   "ruff {args:.}",
 ]
@@ -109,7 +109,6 @@ select = [
   "RUF",
   "S",
   "T",
-  "TID",
   "UP",
   "W",
   "YTT",
@@ -138,18 +137,17 @@ ban-relative-imports = "all"
 [tool.ruff.per-file-ignores]
 # Tests can use magic values, assertions, and relative imports
 "tests/**/*" = ["PLR2004", "S101", "TID252"]
+"__init__.py" = ["F401"]
 
 [tool.coverage.run]
 source_pkgs = ["natspy_lock", "tests"]
 branch = true
 parallel = true
-omit = [
-  "src/natspy_lock/__about__.py",
-]
+omit = []
 
 [tool.coverage.paths]
-natspy_lock = ["src/natspy_lock", "*/natspy-lock/src/natspy_lock"]
-tests = ["tests", "*/natspy-lock/tests"]
+natspy_lock = ["natspy_lock", "*/natspy-lock/natspy_lock"]
+tests = ["tests", "natspy-lock/tests"]
 
 [tool.coverage.report]
 exclude_lines = [
