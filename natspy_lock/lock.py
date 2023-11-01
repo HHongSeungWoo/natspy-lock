@@ -7,6 +7,8 @@ from nats.js.api import KeyValueConfig
 from nats.js.errors import KeyWrongLastSequenceError
 from nats.js.kv import KeyValue
 
+from natspy_lock.exceptions import ConfigMismatchError, InitialError
+
 _lock_dict: dict[str, asyncio.Future] = {}
 
 
@@ -91,10 +93,6 @@ class _NatsLock:
         return await self.acquire()
 
 
-InitialError = RuntimeError("kv has not been initialized")
-TtlMismatchError = RuntimeError("ttl not match")
-
-
 class NatsLock:
     _kv: KeyValue | None = None
     _watch_task: asyncio.Task | None = None
@@ -108,7 +106,7 @@ class NatsLock:
         except Exception:
             cls._kv = await js.create_key_value(KeyValueConfig(stream_name, ttl=max_ttl))
         if (await cls._kv.status()).ttl != max_ttl:
-            raise TtlMismatchError
+            raise ConfigMismatchError
         cls._watch_task = asyncio.create_task(watch_lock(cls._kv))
 
     @classmethod
