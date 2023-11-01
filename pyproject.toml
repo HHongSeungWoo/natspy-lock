@@ -46,6 +46,7 @@ type = "virtual"
 dependencies = [
   "coverage[toml]>=6.5",
   "pytest",
+  "pytest-asyncio",
   "pre-commit<4"
 ]
 [tool.hatch.envs.default.scripts]
@@ -156,3 +157,6 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
