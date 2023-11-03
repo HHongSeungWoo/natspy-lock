@@ -22,7 +22,7 @@ async def watch_lock(kv: KeyValue):
     w = await kv.watchall()
     while True:
         try:
-            entry = await w.updates(10000)
+            entry = await w.updates(30)
         except asyncio.TimeoutError:
             continue
 
@@ -33,7 +33,6 @@ async def watch_lock(kv: KeyValue):
                 _lock_dict.pop(entry.key, NoOpClass).set_result(True)
 
 
-# 상태에 맞는 에러를 raise 시키는게 더 나은가??
 async def acquire(kv: KeyValue, key: str, wait: float = 0):
     start = time.time()
 
