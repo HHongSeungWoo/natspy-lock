@@ -1,37 +1,38 @@
 import asyncio
+import multiprocessing
 
 import nats
-import pytest
 
 from natspy_lock import NatsLock
 
-
-@pytest.fixture(scope="session")
-def event_loop():
-    return asyncio.get_event_loop()
-
-
-@pytest.fixture(scope="session")
-async def nats_client():
-    nc = None
-    try:
-        nc = await nats.connect("nats://127.0.0.1:4222")
-        yield nc
-    finally:
-        if nc:
-            await nc.drain()
-
-
-@pytest.fixture(scope="session", autouse=True)
-async def init_nats_lock(nats_client: nats.NATS):
-    await NatsLock.init(nats_client.jetstream(), "test_lock", 100)
+shared_variable = multiprocessing.Value("i", 0)
 
 
 async def should_be_locked():
-    async with NatsLock.lock("test_lock", 1) as lock:
-        assert lock
-        await asyncio.sleep(0.5)
+    nc = await nats.connect("nats://127.0.0.1:4222")
+    kv = await nc.jetstream().key_value("test_lock")
+    lock = NatsLock(kv)
+
+    await asyncio.sleep(4)
+
+    for _ in range(1000):
+        async with lock.lock("test_lock1111", 1) as asd:
+            print(asd)  # noqa: T201
+            shared_variable.value += 1
+    await nc.drain()
+
+
+def run_async():
+    asyncio.run(should_be_locked())
 
 
 async def test_nats_lock():
-    await asyncio.gather(should_be_locked(), should_be_locked())
+    p1 = multiprocessing.Process(target=run_async)
+    p2 = multiprocessing.Process(target=run_async)
+    p1.start()
+    p2.start()
+
+    p1.join()
+    p2.join()
+
+    print("Final value of shared_variable:", shared_variable.value)  # noqa: T201

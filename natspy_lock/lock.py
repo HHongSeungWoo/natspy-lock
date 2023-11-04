@@ -2,14 +2,8 @@ import asyncio
 import time
 import warnings
 
-from nats.js import JetStreamContext
-from nats.js.api import KeyValueConfig
 from nats.js.errors import KeyWrongLastSequenceError
 from nats.js.kv import KeyValue
-
-from natspy_lock.exceptions import ConfigMismatchError, InitialError
-
-_lock_dict: dict[str, asyncio.Future] = {}
 
 
 class NoOpClass:
@@ -18,7 +12,8 @@ class NoOpClass:
         pass
 
 
-async def watch_lock(kv: KeyValue):
+async def watch_lock(kv: KeyValue, key_dict: dict[str, asyncio.Future]):
+    # info = await kv.status()
     w = await kv.watchall()
     while True:
         try:
@@ -28,18 +23,18 @@ async def watch_lock(kv: KeyValue):
 
         if entry:
             if entry.operation is None:
-                _ = _lock_dict.setdefault(entry.key, asyncio.Future())
+                _ = key_dict.setdefault(entry.key, asyncio.Future())
             elif entry.operation == "PURGE":
-                _lock_dict.pop(entry.key, NoOpClass).set_result(True)
+                key_dict.pop(entry.key, NoOpClass).set_result(True)
 
 
-async def acquire(kv: KeyValue, key: str, wait: float = 0):
+async def acquire(kv: KeyValue, key_dict: dict[str, asyncio.Future], key: str, wait: float = 0):
     start = time.time()
 
-    wait_future = _lock_dict.get(key, None)
+    wait_future = key_dict.get(key, None)
 
     if wait_future is None:
-        wait_future = _lock_dict.setdefault(key, asyncio.Future())
+        wait_future = key_dict.setdefault(key, asyncio.Future())
 
         try:
             await kv.create(key, b"")
@@ -53,10 +48,10 @@ async def acquire(kv: KeyValue, key: str, wait: float = 0):
         try:
             await asyncio.wait_for(asyncio.shield(wait_future), wait)
 
-            return await acquire(kv, key, wait - (time.time() - start))
+            return await acquire(kv, key_dict, key, wait - (time.time() - start))
         except asyncio.TimeoutError:
             # noinspection PyAsyncCall
-            _lock_dict.pop(key, None)
+            key_dict.pop(key, None)
             return False
         except Exception:
             return False
@@ -69,15 +64,16 @@ async def release(kv: KeyValue, key: str):
 
 
 class _NatsLock:
-    def __init__(self, kv: KeyValue, key: str, wait: float = 0):
+    def __init__(self, kv: KeyValue, key_dict: dict[str, asyncio.Future], key: str, wait: float = 0):
         self.kv = kv
+        self.key_dict = key_dict
         self.key = key
         self.wait = wait
 
         self._lock = False
 
     async def acquire(self):
-        self._lock = await acquire(self.kv, self.key, self.wait)
+        self._lock = await acquire(self.kv, self.key_dict, self.key, self.wait)
 
         return self._lock
 
@@ -93,23 +89,11 @@ class _NatsLock:
 
 
 class NatsLock:
-    _kv: KeyValue | None = None
-    _watch_task: asyncio.Task | None = None
+    def __init__(self, kv: KeyValue):
+        self.kv = kv
+        self.key_dict: dict[str, asyncio.Future] = {}
 
-    @classmethod
-    async def init(cls, js: JetStreamContext, stream_name: str, max_ttl: int):
-        if cls._kv:
-            return
-        try:
-            cls._kv = await js.key_value(stream_name)
-        except Exception:
-            cls._kv = await js.create_key_value(KeyValueConfig(stream_name, ttl=max_ttl))
-        if (await cls._kv.status()).ttl != max_ttl:
-            raise ConfigMismatchError
-        cls._watch_task = asyncio.create_task(watch_lock(cls._kv))
+        self._watch_task = asyncio.create_task(watch_lock(self.kv, self.key_dict))
 
-    @classmethod
-    def lock(cls, key: str, wait: float = 0):
-        if not cls._kv:
-            raise InitialError
-        return _NatsLock(cls._kv, key, wait)
+    def lock(self, key: str, wait: float = 0):
+        return _NatsLock(self.kv, self.key_dict, key, wait)

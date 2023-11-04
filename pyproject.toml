@@ -161,3 +161,4 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = "-s"
