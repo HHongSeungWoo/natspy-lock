@@ -13,7 +13,6 @@ class NoOpClass:
 
 
 async def watch_lock(kv: KeyValue, key_dict: dict[str, asyncio.Future]):
-    # info = await kv.status()
     w = await kv.watchall()
     while True:
         try:
@@ -75,13 +74,16 @@ class _NatsLock:
     async def acquire(self):
         self._lock = await acquire(self.kv, self.key_dict, self.key, self.wait)
 
-        return self._lock
+        return self
 
     async def release(self):
         await release(self.kv, self.key)
 
+    def locked(self):
+        return self._lock
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._lock:
+        if self.locked():
             await self.release()
 
     async def __aenter__(self):
@@ -93,7 +95,8 @@ class NatsLock:
         self.kv = kv
         self.key_dict: dict[str, asyncio.Future] = {}
 
+        # todo waiting for watcher
         self._watch_task = asyncio.create_task(watch_lock(self.kv, self.key_dict))
 
-    def lock(self, key: str, wait: float = 0):
+    def get_lock(self, key: str, wait: float = 0):
         return _NatsLock(self.kv, self.key_dict, key, wait)

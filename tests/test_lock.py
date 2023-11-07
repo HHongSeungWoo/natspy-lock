@@ -13,11 +13,8 @@ async def should_be_locked():
     kv = await nc.jetstream().key_value("test_lock")
     lock = NatsLock(kv)
 
-    await asyncio.sleep(4)
-
-    for _ in range(1000):
-        async with lock.lock("test_lock1111", 1) as asd:
-            print(asd)  # noqa: T201
+    for _ in range(300):
+        async with lock.get_lock("test_lock11111", 1):
             shared_variable.value += 1
     await nc.drain()
 
@@ -29,10 +26,16 @@ def run_async():
 async def test_nats_lock():
     p1 = multiprocessing.Process(target=run_async)
     p2 = multiprocessing.Process(target=run_async)
+    p3 = multiprocessing.Process(target=run_async)
+    p4 = multiprocessing.Process(target=run_async)
     p1.start()
     p2.start()
+    p3.start()
+    p4.start()
 
     p1.join()
     p2.join()
+    p3.join()
+    p4.join()
 
-    print("Final value of shared_variable:", shared_variable.value)  # noqa: T201
+    assert shared_variable.value == 1200, "Lock is not working"
