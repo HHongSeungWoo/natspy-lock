@@ -5,6 +5,8 @@
 
 -----
 
+`natspy-lock` is a distributed lock library using nats.
+
 **Table of Contents**
 
 - [Installation](#installation)
@@ -26,11 +28,12 @@ from natspy_lock import NatsLock
 
 async def main():
     nc = await nats.connect("nats://127.0.0.1:4222")
-    await NatsLock.init(nc.jetstream(), "test_lock", 100)
-    async with NatsLock.lock("test_lock", 1) as lock:
-        # do something
+    kv = await nc.jetstream().key_value("test_lock")
+    lock = NatsLock(kv)
+    async with lock.get_lock("test_lock", 1):
+    #     do something
         pass
-    await nc.close()
+    await nc.drain()
 ```
 
 ## License
