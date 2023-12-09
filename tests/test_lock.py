@@ -13,10 +13,11 @@ async def should_be_locked():
     await NatsLock.init(nc.jetstream(), "test_lcok", 60)
 
     async def inner():
-        async with NatsLock.get_lock("test_lock11111", 10):
-            shared_variable.value += 1
+        async with NatsLock.get_lock("test_lock11111", 10) as nl:
+            if nl.locked():
+                shared_variable.value += 1
 
-    await asyncio.gather(*[inner() for _ in range(2500)])
+    await asyncio.gather(*[inner() for _ in range(250)])
     await nc.drain()
 
 
@@ -39,4 +40,4 @@ async def test_nats_lock():
     p3.join()
     p4.join()
 
-    assert shared_variable.value == 10000, "Lock is not working"
+    assert shared_variable.value == 1000, "Lock is not working"

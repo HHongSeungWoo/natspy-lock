@@ -37,9 +37,11 @@ class LockStorage(threading.local):
         return self._dict.pop(key, NoOpClass)
 
 
+storage = LockStorage()
+
+
 async def watch_lock(kv: KeyValue):
     w = await kv.watchall()
-    storage = LockStorage()
     while True:
         try:
             entry = await w.updates(30)
@@ -55,35 +57,33 @@ async def watch_lock(kv: KeyValue):
                 storage.pop(entry.key).set_result(True)
 
 
-async def acquire(kv: KeyValue, key: str, wait: float = 0):
+async def acquire(kv: KeyValue, key: str, wait: float = 0) -> bool:
     start = time.time()
-    storage = LockStorage()
 
     wait_future = storage.get(key)
 
-    if wait_future is None:
-        wait_future = storage.setdefault(key, asyncio.Future())
+    if wait_future:
+        if wait > 0:
+            try:
+                await asyncio.wait_for(asyncio.shield(wait_future), wait)
 
-        try:
-            await kv.create(key, b"")
-            return True
-        except KeyWrongLastSequenceError:
-            pass
-        except Exception as e:
-            warnings.warn(f"Unexpected error occurred while acquiring lock: {e}", stacklevel=2)
+                return await acquire(kv, key, wait - (time.time() - start))
+            except asyncio.TimeoutError:
+                return False
+            except Exception:
+                return False
+        else:
+            await wait_future
 
-    if wait > 0:
-        try:
-            await asyncio.wait_for(asyncio.shield(wait_future), wait)
-
-            return await acquire(kv, key, wait - (time.time() - start))
-        except asyncio.TimeoutError:
-            storage.pop(key)
-            return False
-        except Exception:
-            return False
-    else:
-        return False
+    try:
+        await kv.create(key, b"")
+        return True
+    except KeyWrongLastSequenceError:
+        await asyncio.sleep(0.1)
+        return await acquire(kv, key, wait - (time.time() - start))
+    except Exception as e:
+        warnings.warn(f"Unexpected error occurred while acquiring lock: {e}", stacklevel=2)
+        raise e
 
 
 async def release(kv: KeyValue, key: str):
