@@ -3,7 +3,7 @@ import threading
 import time
 import warnings
 
-from nats.js import JetStreamContext
+import nats
 from nats.js.api import KeyValueConfig
 from nats.js.errors import KeyWrongLastSequenceError
 from nats.js.kv import KeyValue
@@ -40,9 +40,10 @@ class LockStorage(threading.local):
 storage = LockStorage()
 
 
-async def watch_lock(kv: KeyValue):
+async def watch_lock(nc: nats.NATS, kv: KeyValue):
     w = await kv.watchall()
-    while True:
+
+    while not (nc.is_closed or nc.is_draining):
         try:
             entry = await w.updates(30)
         except asyncio.TimeoutError:
@@ -122,12 +123,12 @@ class NatsLock:
     _watch_task: asyncio.Task | None = None
 
     @classmethod
-    async def init(cls, js: JetStreamContext, stream_name: str, max_ttl: int):
+    async def init(cls, nc: nats.NATS, stream_name: str, max_ttl: int):
         if cls._kv:
             return
 
-        cls._kv = await js.create_key_value(KeyValueConfig(stream_name, ttl=max_ttl))
-        cls._watch_task = asyncio.create_task(watch_lock(cls._kv))
+        cls._kv = await nc.jetstream().create_key_value(KeyValueConfig(stream_name, ttl=max_ttl))
+        cls._watch_task = asyncio.create_task(watch_lock(nc, cls._kv))
 
     @classmethod
     def get_lock(cls, key: str, wait: float = 0):

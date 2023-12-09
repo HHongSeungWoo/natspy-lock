@@ -10,7 +10,7 @@ shared_variable = multiprocessing.Value("i", 0)
 
 async def should_be_locked():
     nc = await nats.connect("nats://127.0.0.1:4222")
-    await NatsLock.init(nc.jetstream(), "test_lcok", 60)
+    await NatsLock.init(nc, "test_lock", 60)
 
     async def inner():
         async with NatsLock.get_lock("test_lock11111", 10) as nl:
