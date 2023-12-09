@@ -28,9 +28,8 @@ from natspy_lock import NatsLock
 
 async def main():
     nc = await nats.connect("nats://127.0.0.1:4222")
-    kv = await nc.jetstream().key_value("test_lock")
-    lock = NatsLock(kv)
-    async with lock.get_lock("test_lock", 1):
+    await NatsLock.init(nc.jetstream(), "test_lock", 60)
+    async with NatsLock.get_lock("test_lock", 1):
     #     do something
         pass
     await nc.drain()
